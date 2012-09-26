@@ -23,16 +23,46 @@
 #   y/Return:   Copy selection to primary buffer, Return: deactivate afterwards
 #   q/Escape:   Deactivate keyboard selection mode
 
-
 use strict;
+
+my $CONTROL_MASK  = urxvt::ControlMask;
+my $META_MASK     = 4;
+my $ESCAPE_KEYSYM = 0xff1b;
+my $ENTER_KEYSYM  = 0xff0d;
+my $UP_KEYSYM     = 0xff52;
+my $DOWN_KEYSYM   = 0xff54;
+my $LEFT_KEYSYM   = 0xff51;
+my $RIGHT_KEYSYM  = 0xff53;
+
+sub store_sym_mask {
+    my ($keysym, $keymask) = @_;
+    return $keysym + ($keymask << 16);
+}
+
+sub get_sym {
+    return $_[0] % (1 << 16);
+}
+
+sub get_mask {
+    return ($_[0] >> 16);
+}
+sub no_modifier {
+    store_sym_mask(ord($_),0);
+}
+
+sub ctrl_modifier {
+    store_sym_mask(ord($_),$CONTROL_MASK);
+}
 
 # Keys that are overridable by setting appropriate
 # URxvt.keyboard-select.key-h, where the last h is the
 # key you want to change
 # For special keys use those defined in key_escape.
 # To change keys prefixed with control, use key-C-v, for instance.
-my @keys = map(ord,((split //, 'hjklgG0^$HMLfF;,wWbBeE/?nNbuvVyq'))),
-#    ('C-f','C-d','C-b','C-u','C-v')));
+my @keys = (map(no_modifier,split //, 'hjklgG0^$HMLfF;,wWbBeE/?nNbuvVyq'),
+            store_sym_mask($ENTER_KEYSYM,0),
+            store_sym_mask($ESCAPE_KEYSYM,0),
+            map(ctrl_modifier,split //, 'fdbuv'));
 
 my @escapes =
     ([ord('0'),'zero'],
@@ -56,7 +86,14 @@ my @escapes =
      [ord('%'),'percent'],
      [ord('#'),'hash'],
      [ord('&'),'ampersand'],
-     [ord('_'),'underscore']);
+     [ord('_'),'underscore'],
+     [ord(' '),'space'],
+     [$ESCAPE_KEYSYM,'escape'],
+     [$ENTER_KEYSYM,'enter'],
+     [$DOWN_KEYSYM,'down'],
+     [$LEFT_KEYSYM,'left'],
+     [$UP_KEYSYM,'up'],
+     [$RIGHT_KEYSYM,'right']);
 
 my %forward ;
 my %backward ;
@@ -64,23 +101,60 @@ my %backward ;
 foreach (@escapes) { $forward{$_->[0]} = $_->[1]; };
 foreach (@escapes) { $backward{$_->[1]} = $_->[0]; };
 
-# transforms ord(/) to slash, ord(y) to y etc
+# transforms
+#    { sym => ord(/), state => 0} to slash
+#    { sym => ord(y), state => 0} to y
+#    { sym => ord(y), state => urxvt::ControlMask } to C-y
 sub key_escape {
-    if (exists $forward{$_[0]}) {
-        return $forward{$_[0]};
+    my ($key_desc) = @_;
+    my $res = "";
+    if (exists $forward{get_sym($key_desc)}) {
+        $res = $forward{get_sym($key_desc)};
     } else {
-        return chr($_[0]);
+        $res = chr(get_sym($key_desc));
     }
+    if (get_mask($key_desc) & $META_MASK) {
+        $res = "M-$res";
+    }
+    if (get_mask($key_desc) & $CONTROL_MASK) {
+        $res = "C-$res";
+    }
+    return $res;
 }
 
-# transforms slash to ord(/), y to ord(y) etc
+# transforms
+#    slash to { sym => ord(/), state => 0}
+#    y     to { sym => ord(y), state => 0}
+#    C-y   to { sym => ord(y), state => urxvt::ControlMask },
+# and for convenience also
+#    /     to { sym => ord(/), state => 0}
 sub key_unescape {
-    if (exists $backward{$_[0]}) {
-        return $backward{$_[0]};
-    } else {
-        return ord($_[0]);
+    my ($key) = @_;
+    my $mask = 0;
+    if ($key =~ s/C-//) {
+        $mask += $CONTROL_MASK;
     }
+    if ($key =~ s/M-//) {
+        $mask += $META_MASK;
+    }
+    my $sym;
+    if (exists $backward{$key}) {
+        $sym = $backward{$key};
+    } else {
+        $sym = ord($key);
+    }
+    return store_sym_mask($sym,$mask);
 }
+
+# foreach my $key (@keys) {
+#     print $key;
+#     print " ";
+#     print key_escape($key);
+#     print " ";
+#     print key_unescape(key_escape($key));
+#     print "\n";
+#
+# }
 
 sub on_start{
 	my ($self) = @_;
@@ -94,8 +168,8 @@ sub on_start{
 
         open (MYFILE, '>>/home/dan/LOG');
         foreach my $key (@keys) {
+            my $pretty_key = chr(get_sym($key));
             my $escaped_key = key_escape($key);
-            my $pretty_key = chr($key);
             my $resource = $self->x_resource("keyboard-select.key-$escaped_key");
             print MYFILE "$key ($pretty_key) ($escaped_key): $resource\n";
             if ($resource) {
@@ -106,6 +180,15 @@ sub on_start{
                 }
             } else {
                 $self->{key}{$key}{$key} = 1;
+                if ($pretty_key eq 'h') {
+                    $self->{key}{$key}{key_unescape{'left'}} = 1;
+                } elsif ($pretty_key eq 'j') {
+                    $self->{key}{$key}{key_unescape{'down'}} = 1;
+                } elsif ($pretty_key eq 'k') {
+                    $self->{key}{$key}{key_unescape{'up'}} = 1;
+                } elsif ($pretty_key eq 'l') {
+                    $self->{key}{$key}{key_unescape{'right'}} = 1;
+                }
             }
         }
         close MYFILE;
@@ -137,22 +220,31 @@ sub key_press {
             $key = "C-$key";
         }
 
+        my $key_desc = store_sym_mask($keysym,$event->{state} & ~urxvt::ShiftMask);
+
         my $key_pressed = sub {
-            return (exists $self->{key}{key_unescape($_[0])}{$keysym});
+            return (exists $self->{key}{key_unescape($_[0])}{$key_desc});
         };
 
         open (MYFILE, '>>/home/dan/LOG');
-        print MYFILE "pressed $key\n";
-        print MYFILE "$key: ";
-        foreach my $test (@keys) {
-            if ($key_pressed->($test)) {
-                print MYFILE " [$test]";
-            } else {
-                print MYFILE " ~$test";
-            }
-        }
-        my @found_keys = ((split //, 'gG0^$HML'),("C-f","C-b","C-d","C-u"));
-        print MYFILE "\n@found_keys\n";
+        print MYFILE $self->ModLevel3Mask, ' ', $self->ModMetaMask, "\n";
+        print MYFILE "($key_desc) $key ";
+        print MYFILE " sym ";
+        print MYFILE get_sym($key_desc);
+        print MYFILE " keysym ";
+        print MYFILE $keysym;
+        print MYFILE " mask ";
+        print MYFILE get_mask($key_desc);
+        print MYFILE " state ";
+        print MYFILE $event->{state};
+        # foreach my $test (@keys) {
+        #     my $etest = key_escape($test);
+        #     if ($key_pressed->($etest)) {
+        #         print MYFILE " [$etest]";
+        #     } else {
+        #         print MYFILE " ~$etest";
+        #     }
+        # }
         print MYFILE "\n";
         close MYFILE;
 
@@ -160,17 +252,17 @@ sub key_press {
         # and returns its corresponding key if it is found
         my $key_lookup = sub {
             open (MYFILE, '>>/home/dan/LOG');
-            print MYFILE "doing \$key_lookup\n";
-            print MYFILE "\@{$_[0]}: @{$_[0]}\n";
+            # print MYFILE "doing \$key_lookup\n";
+            # print MYFILE "\@{$_[0]}: @{$_[0]}\n";
             foreach my $char (@{$_[0]}) {
-                print MYFILE "$char ";
+                # print MYFILE "$char ";
                 if ($key_pressed->($char)) {
                     print MYFILE "\nkey_lookup $key: [$char]\n";
                     close MYFILE;
                     return $char;
                 }
             }
-            print MYFILE "\n";
+            # print MYFILE "\n";
             close MYFILE;
             return;
         };
@@ -178,7 +270,7 @@ sub key_press {
         my $found_key;
 
 	if ($self->{search}) {
-		if ($keysym == 0xff1b) {
+		if ($key_pressed->('escape')) {
 			if ($self->{search_mode}) {
 				deactivate($self);
 			} else {
@@ -192,7 +284,7 @@ sub key_press {
 			} else {
 				status_area($self);
 			}
-		} elsif ($keysym == 0xff0d) {
+		} elsif ($key_pressed->('enter')) {
 			my $txt = substr($self->{search}, 1);
 			if ($txt) {
 				$self->{pattern} = ($txt =~ m/[[:upper:]]/) ? qr/\Q$txt\E/ :
@@ -223,9 +315,9 @@ sub key_press {
 			move_to($self, ';');
 			status_area($self);
 		}
-	} elsif ($key_pressed->('q') || $keysym == 0xff1b) {
+	} elsif ($key_lookup->(['q','escape'])) {
 		deactivate($self);
-	} elsif ($key_pressed->('y') || $keysym == 0xff0d) {
+	} elsif ($found_key = $key_lookup->(['y','enter'])) {
 		if ($self->{select}) {
 			if ($self->{select} eq 'b') {
 				$self->selection($self->{selection});
@@ -237,7 +329,7 @@ sub key_press {
 				$self->selection_end($er, $ec);
 				$self->selection_make($event->{time});
 			}
-			if ($key_pressed->('y')) {
+			if ($found_key eq ('y')) {
 				if ($self->{select} ne 'b') {
 					$self->selection_beg(1, 0);
 					$self->selection_end(1, 0);
@@ -255,35 +347,25 @@ sub key_press {
                 toggle_select($self, 'b');
 	} elsif ($key_pressed->('v')) {
 		toggle_select($self, 'n');
-	} elsif ($key_pressed->('k') || $keysym == 0xff52) {
-		move_cursor($self, 'k');
-	} elsif ($key_pressed->('j') || $keysym == 0xff54) {
-		move_cursor($self, 'j');
-	} elsif ($key_pressed->('h') || $keysym == 0xff51) {
-		move_cursor($self, 'h');
-	} elsif ($key_pressed->('l') || $keysym == 0xff53) {
-		move_cursor($self, 'l');
-	} elsif (($found_key = $key_lookup->(\@found_keys))) {
-                open (MYFILE, '>>/home/dan/LOG');
-                print MYFILE "\$found_key: $found_key\n";
-                $found_key =~ s/^C-//;
-                print MYFILE "\$found_key: $found_key\n";
-                close MYFILE;
+	} elsif ($found_key = $key_lookup->([ split //, 'hjkl'])) {
 		move_cursor($self, $found_key);
-        } elsif (($found_key = $key_lookup->(['f','F']))) {
+	} elsif ($found_key = $key_lookup->([ (split //, 'gG0^$HML'),(split /,/, "C-f,C-b,C-d,C-u") ])) {
+                $found_key =~ s/C-//;
+		move_cursor($self, $found_key);
+        } elsif ($found_key = $key_lookup->(['f','F'])) {
 		$self->{move_to} = 1;
 		$self->{move_dir} = $found_key eq 'F' ? -1 : 1;
 		status_area($self, $key);
-	} elsif (($found_key = $key_lookup->([ split //, ';,wWbBeE' ]))) {
+	} elsif ($found_key = $key_lookup->([ split //, ';,wWbBeE' ])) {
                 open (MYFILE, '>>/home/dan/LOG');
                 print MYFILE "\$found_key: $found_key\n";
                 close MYFILE;
 		move_to($self, $found_key);
-        } elsif (($found_key = $key_lookup->(['/','?']))) {
+        } elsif ($found_key = $key_lookup->(['/','?'])) {
 		$self->{search} = $found_key;
                 $self->{search_dir} = $found_key eq '?' ? -1 : 1;
 		status_area($self);
-	} elsif (($found_key = $key_lookup->(['n','N']))) {
+	} elsif ($found_key = $key_lookup->(['n','N'])) {
                 find_next($self, $self->{search_dir} * ($found_key eq 'N' ? -1 : 1));
 	}
 
