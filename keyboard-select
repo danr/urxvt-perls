@@ -30,7 +30,9 @@ use strict;
 # URxvt.keyboard-select.key-h, where the last h is the
 # key you want to change
 # For special keys use those defined in key_escape.
-my @keys = split //, 'hjklgG0^$HMLfF;,wWbBeE/?nNbuvVyq';
+# To change keys prefixed with control, use key-C-v, for instance.
+my @keys = ((split //, 'hjklgG0^$HMLfF;,wWbBeE/?nNbuvVyq'),
+    ('C-f','C-d','C-b','C-u','C-v'));
 
 sub key_escape{
     my $key = $_[0];
@@ -103,6 +105,10 @@ sub key_press {
 	my ($self, $event, $keysym, $char) = @_;
 	my $key = chr($keysym);
 
+        if ($event->{state} & urxvt::ControlMask) {
+            $key = "C-$key";
+        }
+
         my $key_pressed = sub {
             return (exists $self->{key}{$_[0]}{$key});
         };
@@ -117,6 +123,8 @@ sub key_press {
                 print MYFILE " ~$test";
             }
         }
+        my @found_keys = ((split //, 'gG0^$HML'),("C-f","C-b","C-d","C-u"));
+        print MYFILE "\n@found_keys\n";
         print MYFILE "\n";
         close MYFILE;
 
@@ -124,26 +132,23 @@ sub key_press {
         # and returns its corresponding key if it is found
         my $key_lookup = sub {
             open (MYFILE, '>>/home/dan/LOG');
-            foreach my $char (split //, $_[0]) {
+            print MYFILE "doing \$key_lookup\n";
+            print MYFILE "\$_[0]: $_[0]\n";
+            print MYFILE "\@{$_[0]}: @{$_[0]}\n";
+            print MYFILE "\@_: @_\n";
+            foreach my $char (@{$_[0]}) {
                 print MYFILE "$char\n";
-                if (exists $self->{key}{$char}) {
-                    if ($key_pressed->($char)) {
-                        print MYFILE "key_lookup $key: [$char]\n";
-                        close MYFILE;
-                        return $char;
-                    }
-                } else {
-                    if ($key eq $char) {
-                        print MYFILE "key_lookup $key: [$char]\n";
-                        close MYFILE;
-                        return $char;
-                    }
+                if ($key_pressed->($char)) {
+                    print MYFILE "key_lookup $key: [$char]\n";
+                    close MYFILE;
+                    return $char;
                 }
             }
             close MYFILE;
             return;
         };
 
+        my $found_key;
 
 	if ($self->{search}) {
 		if ($keysym == 0xff1b) {
@@ -191,7 +196,7 @@ sub key_press {
 			move_to($self, ';');
 			status_area($self);
 		}
-	} elsif ($keysym == 0xff1b || lc($key) eq 'q') {
+	} elsif ($key_pressed->('q') || $keysym == 0xff1b) {
 		deactivate($self);
 	} elsif ($key_pressed->('y') || $keysym == 0xff0d) {
 		if ($self->{select}) {
@@ -205,7 +210,7 @@ sub key_press {
 				$self->selection_end($er, $ec);
 				$self->selection_make($event->{time});
 			}
-			if ($key eq 'y') {
+			if ($key_pressed->('y')) {
 				if ($self->{select} ne 'b') {
 					$self->selection_beg(1, 0);
 					$self->selection_end(1, 0);
@@ -219,12 +224,10 @@ sub key_press {
 		}
 	} elsif ($key_pressed->('V')) {
 		toggle_select($self, 'l');
+	} elsif ($key_pressed->('C-v')) {
+                toggle_select($self, 'b');
 	} elsif ($key_pressed->('v')) {
-		if ($event->{state} & urxvt::ControlMask) {
-			toggle_select($self, 'b');
-		} else {
-			toggle_select($self, 'n');
-		}
+		toggle_select($self, 'n');
 	} elsif ($key_pressed->('k') || $keysym == 0xff52) {
 		move_cursor($self, 'k');
 	} elsif ($key_pressed->('j') || $keysym == 0xff54) {
@@ -233,38 +236,28 @@ sub key_press {
 		move_cursor($self, 'h');
 	} elsif ($key_pressed->('l') || $keysym == 0xff53) {
 		move_cursor($self, 'l');
-	} elsif ((my $move_cursor_key = $key_lookup->('gG0^$HML')) ne "") {
+	} elsif (($found_key = $key_lookup->(\@found_keys)) ne "") {
                 open (MYFILE, '>>/home/dan/LOG');
-                print MYFILE "\$move_cursor_key: $move_cursor_key\n";
+                print MYFILE "\$found_key: $found_key\n";
+                $found_key =~ s/^C-//;
+                print MYFILE "\$found_key: $found_key\n";
                 close MYFILE;
-		move_cursor($self, $move_cursor_key);
-        } elsif ('fbdu' =~ m/\Q$key\E/ && $event->{state} & urxvt::ControlMask) {
-		move_cursor($self, $key);
-        } elsif ($key_pressed->('f')) {
+		move_cursor($self, $found_key);
+        } elsif (($found_key = $key_lookup->(['f','F'])) ne "") {
 		$self->{move_to} = 1;
-		$self->{move_dir} = 1;
+		$self->{move_dir} = $found_key eq 'F' ? -1 : 1;
 		status_area($self, $key);
-        } elsif ($key_pressed->('F')) {
-		$self->{move_to} = 1;
-		$self->{move_dir} = -1;
-		status_area($self, $key);
-	} elsif ((my $move_to_key = $key_lookup->(';,wWbBeE')) ne "") {
+	} elsif (($found_key = $key_lookup->([ split //, ';,wWbBeE' ])) ne "") {
                 open (MYFILE, '>>/home/dan/LOG');
-                print MYFILE "\$move_to_key: $move_to_key\n";
+                print MYFILE "\$found_key: $found_key\n";
                 close MYFILE;
-		move_to($self, $move_to_key);
-	} elsif ($key_pressed->('/')) {
-		$self->{search} = $key;
-		$self->{search_dir} = 1;
+		move_to($self, $found_key);
+        } elsif (($found_key = $key_lookup->(['/','?'])) ne "") {
+		$self->{search} = $found_key;
+                $self->{search_dir} = $found_key eq '?' ? -1 : 1;
 		status_area($self);
-        } elsif ($key_pressed->('?')) {
-		$self->{search} = $key;
-                $self->{search_dir} = -1;
-		status_area($self);
-	} elsif ($key_pressed->('n')) {
-                find_next($self, $self->{search_dir});
-	} elsif ($key_pressed->('N')) {
-                find_next($self, -$self->{search_dir});
+	} elsif (($found_key = $key_lookup->(['n','N'])) ne "") {
+                find_next($self, $self->{search_dir} * ($found_key eq 'N' ? -1 : 1));
 	}
 
 
