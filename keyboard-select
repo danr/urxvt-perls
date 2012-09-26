@@ -34,26 +34,49 @@ use strict;
 my @keys = ((split //, 'hjklgG0^$HMLfF;,wWbBeE/?nNbuvVyq'),
     ('C-f','C-d','C-b','C-u','C-v'));
 
-sub key_escape{
-    my $key = $_[0];
-    if ($key eq "zero") {
-        return '0';
-    } elsif ($key eq "caret") {
-        return '^';
-    } elsif ($key eq "dollar") {
-        return '$';
-    } elsif ($key eq "semicolon") {
-        return ';';
-    } elsif ($key eq "comma") {
-        return ',';
-    } elsif ($key eq "dollar") {
-        return ',';
-    } elsif ($key eq "slash") {
-        return '/';
-    } elsif ($key eq "question") {
-        return '?';
+my @escapes =
+    (['0','zero'],
+     ['^','caret'],
+     ['$','dollar'],
+     [';','semicolon'],
+     [',','comma'],
+     ['$','dollar'],
+     ['/','slash'],
+     ['\\','backslash'],
+     ['?','question'],
+     ['!','bang'],
+     ['<','less'],
+     ['>','greater'],
+     ['=','equals'],
+     ['-','dash'],
+     ['+','plus'],
+     ['*','star'],
+     ['|','pipe'],
+     ['~','tilde'],
+     ['%','percent'],
+     ['#','hash'],
+     ['&','ampersand'],
+     ['_','underscore']);
+
+my %forward ;
+my %backward ;
+
+foreach (@escapes) { $forward{$_->[0]} = $_->[1]; };
+foreach (@escapes) { $backward{$_->[1]} = $_->[0]; };
+
+sub key_escape {
+    if (exists $forward{$_[0]}) {
+        return $forward{$_[0]};
     } else {
-        return $key;
+        return $_[0];
+    }
+}
+
+sub key_unescape {
+    if (exists $backward{$_[0]}) {
+        return $backward{$_[0]};
+    } else {
+        return $_[0];
     }
 }
 
@@ -71,10 +94,12 @@ sub on_start{
         foreach my $key (@keys) {
             my $escaped_key = key_escape($key);
             my $resource = $self->x_resource("keyboard-select.key-$escaped_key");
-            print MYFILE "$key: $resource\n";
+            print MYFILE "$key ($escaped_key): $resource\n";
             if ($resource) {
                 foreach my $value (split /,/, $resource) {
-                    $self->{key}{$key}{$value} = 1;
+                    my $unescaped_value = key_unescape($value);
+                    print MYFILE "Mapping $unescaped_value ($value) to $key.\n";
+                    $self->{key}{$key}{key_unescape($value)} = 1;
                 }
             } else {
                 $self->{key}{$key}{$key} = 1;
@@ -236,27 +261,27 @@ sub key_press {
 		move_cursor($self, 'h');
 	} elsif ($key_pressed->('l') || $keysym == 0xff53) {
 		move_cursor($self, 'l');
-	} elsif (($found_key = $key_lookup->(\@found_keys)) ne "") {
+	} elsif (($found_key = $key_lookup->(\@found_keys))) {
                 open (MYFILE, '>>/home/dan/LOG');
                 print MYFILE "\$found_key: $found_key\n";
                 $found_key =~ s/^C-//;
                 print MYFILE "\$found_key: $found_key\n";
                 close MYFILE;
 		move_cursor($self, $found_key);
-        } elsif (($found_key = $key_lookup->(['f','F'])) ne "") {
+        } elsif (($found_key = $key_lookup->(['f','F']))) {
 		$self->{move_to} = 1;
 		$self->{move_dir} = $found_key eq 'F' ? -1 : 1;
 		status_area($self, $key);
-	} elsif (($found_key = $key_lookup->([ split //, ';,wWbBeE' ])) ne "") {
+	} elsif (($found_key = $key_lookup->([ split //, ';,wWbBeE' ]))) {
                 open (MYFILE, '>>/home/dan/LOG');
                 print MYFILE "\$found_key: $found_key\n";
                 close MYFILE;
 		move_to($self, $found_key);
-        } elsif (($found_key = $key_lookup->(['/','?'])) ne "") {
+        } elsif (($found_key = $key_lookup->(['/','?']))) {
 		$self->{search} = $found_key;
                 $self->{search_dir} = $found_key eq '?' ? -1 : 1;
 		status_area($self);
-	} elsif (($found_key = $key_lookup->(['n','N'])) ne "") {
+	} elsif (($found_key = $key_lookup->(['n','N']))) {
                 find_next($self, $self->{search_dir} * ($found_key eq 'N' ? -1 : 1));
 	}
 
