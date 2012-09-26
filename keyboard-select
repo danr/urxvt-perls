@@ -31,32 +31,32 @@ use strict;
 # key you want to change
 # For special keys use those defined in key_escape.
 # To change keys prefixed with control, use key-C-v, for instance.
-my @keys = ((split //, 'hjklgG0^$HMLfF;,wWbBeE/?nNbuvVyq'),
-    ('C-f','C-d','C-b','C-u','C-v'));
+my @keys = map(ord,((split //, 'hjklgG0^$HMLfF;,wWbBeE/?nNbuvVyq'))),
+#    ('C-f','C-d','C-b','C-u','C-v')));
 
 my @escapes =
-    (['0','zero'],
-     ['^','caret'],
-     ['$','dollar'],
-     [';','semicolon'],
-     [',','comma'],
-     ['$','dollar'],
-     ['/','slash'],
-     ['\\','backslash'],
-     ['?','question'],
-     ['!','bang'],
-     ['<','less'],
-     ['>','greater'],
-     ['=','equals'],
-     ['-','dash'],
-     ['+','plus'],
-     ['*','star'],
-     ['|','pipe'],
-     ['~','tilde'],
-     ['%','percent'],
-     ['#','hash'],
-     ['&','ampersand'],
-     ['_','underscore']);
+    ([ord('0'),'zero'],
+     [ord('^'),'caret'],
+     [ord('$'),'dollar'],
+     [ord(';'),'semicolon'],
+     [ord(','),'comma'],
+     [ord('$'),'dollar'],
+     [ord('/'),'slash'],
+     [ord('\\'),'backslash'],
+     [ord('?'),'question'],
+     [ord('!'),'bang'],
+     [ord('<'),'less'],
+     [ord('>'),'greater'],
+     [ord('='),'equals'],
+     [ord('-'),'dash'],
+     [ord('+'),'plus'],
+     [ord('*'),'star'],
+     [ord('|'),'pipe'],
+     [ord('~'),'tilde'],
+     [ord('%'),'percent'],
+     [ord('#'),'hash'],
+     [ord('&'),'ampersand'],
+     [ord('_'),'underscore']);
 
 my %forward ;
 my %backward ;
@@ -64,19 +64,21 @@ my %backward ;
 foreach (@escapes) { $forward{$_->[0]} = $_->[1]; };
 foreach (@escapes) { $backward{$_->[1]} = $_->[0]; };
 
+# transforms ord(/) to slash, ord(y) to y etc
 sub key_escape {
     if (exists $forward{$_[0]}) {
         return $forward{$_[0]};
     } else {
-        return $_[0];
+        return chr($_[0]);
     }
 }
 
+# transforms slash to ord(/), y to ord(y) etc
 sub key_unescape {
     if (exists $backward{$_[0]}) {
         return $backward{$_[0]};
     } else {
-        return $_[0];
+        return ord($_[0]);
     }
 }
 
@@ -93,12 +95,13 @@ sub on_start{
         open (MYFILE, '>>/home/dan/LOG');
         foreach my $key (@keys) {
             my $escaped_key = key_escape($key);
+            my $pretty_key = chr($key);
             my $resource = $self->x_resource("keyboard-select.key-$escaped_key");
-            print MYFILE "$key ($escaped_key): $resource\n";
+            print MYFILE "$key ($pretty_key) ($escaped_key): $resource\n";
             if ($resource) {
                 foreach my $value (split /,/, $resource) {
                     my $unescaped_value = key_unescape($value);
-                    print MYFILE "Mapping $unescaped_value ($value) to $key.\n";
+                    print MYFILE "Mapping $unescaped_value ($value) to $pretty_key.\n";
                     $self->{key}{$key}{key_unescape($value)} = 1;
                 }
             } else {
@@ -135,7 +138,7 @@ sub key_press {
         }
 
         my $key_pressed = sub {
-            return (exists $self->{key}{$_[0]}{$key});
+            return (exists $self->{key}{key_unescape($_[0])}{$keysym});
         };
 
         open (MYFILE, '>>/home/dan/LOG');
@@ -158,17 +161,16 @@ sub key_press {
         my $key_lookup = sub {
             open (MYFILE, '>>/home/dan/LOG');
             print MYFILE "doing \$key_lookup\n";
-            print MYFILE "\$_[0]: $_[0]\n";
             print MYFILE "\@{$_[0]}: @{$_[0]}\n";
-            print MYFILE "\@_: @_\n";
             foreach my $char (@{$_[0]}) {
-                print MYFILE "$char\n";
+                print MYFILE "$char ";
                 if ($key_pressed->($char)) {
-                    print MYFILE "key_lookup $key: [$char]\n";
+                    print MYFILE "\nkey_lookup $key: [$char]\n";
                     close MYFILE;
                     return $char;
                 }
             }
+            print MYFILE "\n";
             close MYFILE;
             return;
         };
