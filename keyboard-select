@@ -26,7 +26,7 @@
 use strict;
 
 my $CONTROL_MASK  = urxvt::ControlMask;
-my $META_MASK     = 4;
+my $META_MASK     = 8;
 my $ESCAPE_KEYSYM = 0xff1b;
 my $ENTER_KEYSYM  = 0xff0d;
 my $UP_KEYSYM     = 0xff52;
@@ -44,8 +44,9 @@ sub get_sym {
 }
 
 sub get_mask {
-    return ($_[0] >> 16);
+    return $_[0] >> 16;
 }
+
 sub no_modifier {
     store_sym_mask(ord($_),0);
 }
@@ -102,9 +103,9 @@ foreach (@escapes) { $forward{$_->[0]} = $_->[1]; };
 foreach (@escapes) { $backward{$_->[1]} = $_->[0]; };
 
 # transforms
-#    { sym => ord(/), state => 0} to slash
-#    { sym => ord(y), state => 0} to y
-#    { sym => ord(y), state => urxvt::ControlMask } to C-y
+#    ord(/) to slash
+#    ord(y) to y
+#    ord(y) + (urxvt::ControlMask << 16) to C-y
 sub key_escape {
     my ($key_desc) = @_;
     my $res = "";
@@ -123,11 +124,11 @@ sub key_escape {
 }
 
 # transforms
-#    slash to { sym => ord(/), state => 0}
-#    y     to { sym => ord(y), state => 0}
-#    C-y   to { sym => ord(y), state => urxvt::ControlMask },
+#    slash to ord(/)
+#    y     to ord(y)
+#    C-y   to ord(y) + (urxvt::ControlMask << 16),
 # and for convenience also
-#    /     to { sym => ord(/), state => 0}
+#    /     to ord(/)
 sub key_unescape {
     my ($key) = @_;
     my $mask = 0;
@@ -146,16 +147,6 @@ sub key_unescape {
     return store_sym_mask($sym,$mask);
 }
 
-# foreach my $key (@keys) {
-#     print $key;
-#     print " ";
-#     print key_escape($key);
-#     print " ";
-#     print key_unescape(key_escape($key));
-#     print "\n";
-#
-# }
-
 sub on_start{
 	my ($self) = @_;
 
@@ -167,28 +158,36 @@ sub on_start{
 	$self->{patterns}{'E'} = qr/\S(?=\s|$)/;
 
         open (MYFILE, '>>/home/dan/LOG');
+        my %mapped_keys;
         foreach my $key (@keys) {
-            my $pretty_key = chr(get_sym($key));
             my $escaped_key = key_escape($key);
             my $resource = $self->x_resource("keyboard-select.key-$escaped_key");
-            print MYFILE "$key ($pretty_key) ($escaped_key): $resource\n";
+            print MYFILE "$key ($escaped_key): $resource\n";
             if ($resource) {
                 foreach my $value (split /,/, $resource) {
                     my $unescaped_value = key_unescape($value);
-                    print MYFILE "Mapping $unescaped_value ($value) to $pretty_key.\n";
-                    $self->{key}{$key}{key_unescape($value)} = 1;
+                    print MYFILE "Mapping $unescaped_value ($value) to $escaped_key.\n";
+                    $self->{key}{$key}{$unescaped_value} = ();
+                    $mapped_keys{$unescaped_value} = ();
                 }
-            } else {
+            }
+        }
+        foreach my $key (@keys) {
+            my $escaped_key = key_escape($key);
+            if (!exists($mapped_keys{$key})) {
+                print MYFILE "$key ($escaped_key) mapped to itself\n";
                 $self->{key}{$key}{$key} = 1;
-                if ($pretty_key eq 'h') {
+                if ($escaped_key eq 'h' && !exists($mapped_keys{key_unescape{'left'}})) {
                     $self->{key}{$key}{key_unescape{'left'}} = 1;
-                } elsif ($pretty_key eq 'j') {
+                } elsif ($escaped_key eq 'j' && !exists($mapped_keys{key_unescape{'down'}})) {
                     $self->{key}{$key}{key_unescape{'down'}} = 1;
-                } elsif ($pretty_key eq 'k') {
+                } elsif ($escaped_key eq 'k' && !exists($mapped_keys{key_unescape{'up'}})) {
                     $self->{key}{$key}{key_unescape{'up'}} = 1;
-                } elsif ($pretty_key eq 'l') {
+                } elsif ($escaped_key eq 'l' && !exists($mapped_keys{key_unescape{'right'}})) {
                     $self->{key}{$key}{key_unescape{'right'}} = 1;
                 }
+            } else {
+                print MYFILE "$key ($escaped_key) not mapped to two things!\n";
             }
         }
         close MYFILE;
@@ -237,14 +236,6 @@ sub key_press {
         print MYFILE get_mask($key_desc);
         print MYFILE " state ";
         print MYFILE $event->{state};
-        # foreach my $test (@keys) {
-        #     my $etest = key_escape($test);
-        #     if ($key_pressed->($etest)) {
-        #         print MYFILE " [$etest]";
-        #     } else {
-        #         print MYFILE " ~$etest";
-        #     }
-        # }
         print MYFILE "\n";
         close MYFILE;
 
