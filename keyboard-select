@@ -29,7 +29,31 @@ use strict;
 # Keys that are overridable by setting appropriate
 # URxvt.keyboard-select.key-h, where the last h is the
 # key you want to change
-my @keys = split //, "hjklgG0HMLfF;,wWbBeEnNbuvVyq";
+# For special keys use those defined in key_escape.
+my @keys = split //, 'hjklgG0^$HMLfF;,wWbBeE/?nNbuvVyq';
+
+sub key_escape{
+    my $key = $_[0];
+    if ($key eq "zero") {
+        return '0';
+    } elsif ($key eq "caret") {
+        return '^';
+    } elsif ($key eq "dollar") {
+        return '$';
+    } elsif ($key eq "semicolon") {
+        return ';';
+    } elsif ($key eq "comma") {
+        return ',';
+    } elsif ($key eq "dollar") {
+        return ',';
+    } elsif ($key eq "slash") {
+        return '/';
+    } elsif ($key eq "question") {
+        return '?';
+    } else {
+        return $key;
+    }
+}
 
 sub on_start{
 	my ($self) = @_;
@@ -43,7 +67,8 @@ sub on_start{
 
         open (MYFILE, '>>/home/dan/LOG');
         foreach my $key (@keys) {
-            my $resource = $self->x_resource("keyboard-select.key-$key");
+            my $escaped_key = key_escape($key);
+            my $resource = $self->x_resource("keyboard-select.key-$escaped_key");
             print MYFILE "$key: $resource\n";
             if ($resource) {
                 foreach my $value (split /,/, $resource) {
@@ -77,39 +102,48 @@ sub on_user_command {
 sub key_press {
 	my ($self, $event, $keysym, $char) = @_;
 	my $key = chr($keysym);
-        my %temp = $self->{key}{'k'};
+
+        my $key_pressed = sub {
+            return (exists $self->{key}{$_[0]}{$key});
+        };
 
         open (MYFILE, '>>/home/dan/LOG');
         print MYFILE "pressed $key\n";
         print MYFILE "$key: ";
         foreach my $test (@keys) {
-            if (exists $self->{key}{$test}{$key}) {
+            if ($key_pressed->($test)) {
                 print MYFILE " [$test]";
             } else {
                 print MYFILE " ~$test";
             }
         }
         print MYFILE "\n";
+        close MYFILE;
 
         # looks up $key in the string which is the first argument,
         # and returns its corresponding key if it is found
-        my $lookup = sub {
+        my $key_lookup = sub {
+            open (MYFILE, '>>/home/dan/LOG');
             foreach my $char (split //, $_[0]) {
-                print MYFILE " $char";
+                print MYFILE "$char\n";
                 if (exists $self->{key}{$char}) {
-                    if ( exists $self->{key}{$char}{$key} ) {
+                    if ($key_pressed->($char)) {
+                        print MYFILE "key_lookup $key: [$char]\n";
+                        close MYFILE;
                         return $char;
                     }
                 } else {
                     if ($key eq $char) {
-                        return $char
+                        print MYFILE "key_lookup $key: [$char]\n";
+                        close MYFILE;
+                        return $char;
                     }
                 }
             }
+            close MYFILE;
             return;
         };
 
-        close MYFILE;
 
 	if ($self->{search}) {
 		if ($keysym == 0xff1b) {
@@ -159,7 +193,7 @@ sub key_press {
 		}
 	} elsif ($keysym == 0xff1b || lc($key) eq 'q') {
 		deactivate($self);
-	} elsif (exists $self->{key}{'y'}{$key} || $keysym == 0xff0d) {
+	} elsif ($key_pressed->('y') || $keysym == 0xff0d) {
 		if ($self->{select}) {
 			if ($self->{select} eq 'b') {
 				$self->selection($self->{selection});
@@ -183,45 +217,56 @@ sub key_press {
 				deactivate($self);
 			}
 		}
-	} elsif (exists $self->{key}{'V'}{$key}) {
+	} elsif ($key_pressed->('V')) {
 		toggle_select($self, 'l');
-	} elsif (exists $self->{key}{'v'}{$key}) {
+	} elsif ($key_pressed->('v')) {
 		if ($event->{state} & urxvt::ControlMask) {
 			toggle_select($self, 'b');
 		} else {
 			toggle_select($self, 'n');
 		}
-	} elsif (exists $self->{key}{'k'}{$key} || $keysym == 0xff52) {
+	} elsif ($key_pressed->('k') || $keysym == 0xff52) {
 		move_cursor($self, 'k');
-	} elsif (exists $self->{key}{'j'}{$key} || $keysym == 0xff54) {
+	} elsif ($key_pressed->('j') || $keysym == 0xff54) {
 		move_cursor($self, 'j');
-	} elsif (exists $self->{key}{'h'}{$key} || $keysym == 0xff51) {
+	} elsif ($key_pressed->('h') || $keysym == 0xff51) {
 		move_cursor($self, 'h');
-	} elsif (exists $self->{key}{'l'}{$key} || $keysym == 0xff53) {
+	} elsif ($key_pressed->('l') || $keysym == 0xff53) {
 		move_cursor($self, 'l');
-	} elsif (my $move_cursor_key = $lookup->('gG0^$HML')) {
+	} elsif ((my $move_cursor_key = $key_lookup->('gG0^$HML')) ne "") {
+                open (MYFILE, '>>/home/dan/LOG');
+                print MYFILE "\$move_cursor_key: $move_cursor_key\n";
+                close MYFILE;
 		move_cursor($self, $move_cursor_key);
         } elsif ('fbdu' =~ m/\Q$key\E/ && $event->{state} & urxvt::ControlMask) {
 		move_cursor($self, $key);
-        } elsif (exists $self->{key}{'f'}{$key}) {
+        } elsif ($key_pressed->('f')) {
 		$self->{move_to} = 1;
 		$self->{move_dir} = 1;
 		status_area($self, $key);
-        } elsif (exists $self->{key}{'F'}{$key}) {
+        } elsif ($key_pressed->('F')) {
 		$self->{move_to} = 1;
 		$self->{move_dir} = -1;
 		status_area($self, $key);
-	} elsif (my $move_to_key = $lookup->(';,wWbBeE')) {
+	} elsif ((my $move_to_key = $key_lookup->(';,wWbBeE')) ne "") {
+                open (MYFILE, '>>/home/dan/LOG');
+                print MYFILE "\$move_to_key: $move_to_key\n";
+                close MYFILE;
 		move_to($self, $move_to_key);
-	} elsif ($key eq '/' || $key eq '?') {
+	} elsif ($key_pressed->('/')) {
 		$self->{search} = $key;
-		$self->{search_dir} = $key eq '?' ? -1 : 1;
+		$self->{search_dir} = 1;
 		status_area($self);
-	} elsif (exists $self->{key}{'n'}{$key}) {
+        } elsif ($key_pressed->('?')) {
+		$self->{search} = $key;
+                $self->{search_dir} = -1;
+		status_area($self);
+	} elsif ($key_pressed->('n')) {
                 find_next($self, $self->{search_dir});
-	} elsif (exists $self->{key}{'N'}{$key}) {
+	} elsif ($key_pressed->('N')) {
                 find_next($self, -$self->{search_dir});
 	}
+
 
 	return 1;
 }
