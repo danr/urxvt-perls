@@ -25,6 +25,7 @@
 
 use strict;
 
+# Constants for common masks and keysyms
 my $CONTROL_MASK  = urxvt::ControlMask;
 my $META_MASK     = 8;
 my $ESCAPE_KEYSYM = 0xff1b;
@@ -47,9 +48,9 @@ sub unpack_key {
 
 # Keys that are overridable in .Xdefaults/.Xresources.
 my @keys = (map(pack_key(ord($_),0),split //, 'hjklgG0^$HMLfF;,wWbBeE/?nNbuvVyq'),
+            map(pack_key(ord($_),$CONTROL_MASK),split //, 'fdbuv'),
             pack_key($ENTER_KEYSYM,0),
-            pack_key($ESCAPE_KEYSYM,0),
-            map(pack_key(ord($_),$CONTROL_MASK),split //, 'fdbuv'));
+            pack_key($ESCAPE_KEYSYM,0));
 
 # How keys are escaped in the configuration file
 my @escapes =
