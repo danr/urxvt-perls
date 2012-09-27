@@ -34,25 +34,14 @@ my $DOWN_KEYSYM   = 0xff54;
 my $LEFT_KEYSYM   = 0xff51;
 my $RIGHT_KEYSYM  = 0xff53;
 
-sub store_sym_mask {
+# Stores a keysym and a mask in an int
+sub pack_key {
     my ($keysym, $keymask) = @_;
     return $keysym + ($keymask << 16);
 }
 
-sub get_sym {
-    return $_[0] % (1 << 16);
-}
-
-sub get_mask {
-    return $_[0] >> 16;
-}
-
-sub no_modifier {
-    store_sym_mask(ord($_),0);
-}
-
-sub ctrl_modifier {
-    store_sym_mask(ord($_),$CONTROL_MASK);
+sub unpack_key {
+    return ($_[0] % (1 << 16),$_[0] >> 16);
 }
 
 # Keys that are overridable by setting appropriate
@@ -60,10 +49,10 @@ sub ctrl_modifier {
 # key you want to change
 # For special keys use those defined in key_escape.
 # To change keys prefixed with control, use key-C-v, for instance.
-my @keys = (map(no_modifier,split //, 'hjklgG0^$HMLfF;,wWbBeE/?nNbuvVyq'),
-            store_sym_mask($ENTER_KEYSYM,0),
-            store_sym_mask($ESCAPE_KEYSYM,0),
-            map(ctrl_modifier,split //, 'fdbuv'));
+my @keys = (map(pack_key(ord($_),0),split //, 'hjklgG0^$HMLfF;,wWbBeE/?nNbuvVyq'),
+            pack_key($ENTER_KEYSYM,0),
+            pack_key($ESCAPE_KEYSYM,0),
+            map(pack_key(ord($_),$CONTROL_MASK),split //, 'fdbuv'));
 
 my @escapes =
     ([ord('0'),'zero'],
@@ -99,36 +88,39 @@ my @escapes =
 my %forward ;
 my %backward ;
 
-foreach (@escapes) { $forward{$_->[0]} = $_->[1]; };
-foreach (@escapes) { $backward{$_->[1]} = $_->[0]; };
+foreach (@escapes) {
+    $forward{$_->[0]} = $_->[1];
+    $backward{$_->[1]} = $_->[0];
+;};
 
-# transforms
-#    ord(/) to slash
-#    ord(y) to y
-#    ord(y) + (urxvt::ControlMask << 16) to C-y
+
+# maps
+#    ord(/) to 'slash'
+#    ord(y) to 'y'
+#    ord(y) + (urxvt::ControlMask << 16) to 'C-y'
 sub key_escape {
-    my ($key_desc) = @_;
+    my ($sym,$mask) = unpack_key($_[0]);
     my $res = "";
-    if (exists $forward{get_sym($key_desc)}) {
-        $res = $forward{get_sym($key_desc)};
+    if (exists $forward{$sym}) {
+        $res = $forward{$sym};
     } else {
-        $res = chr(get_sym($key_desc));
+        $res = chr($sym);
     }
-    if (get_mask($key_desc) & $META_MASK) {
+    if ($mask & $META_MASK) {
         $res = "M-$res";
     }
-    if (get_mask($key_desc) & $CONTROL_MASK) {
+    if ($mask & $CONTROL_MASK) {
         $res = "C-$res";
     }
     return $res;
 }
 
-# transforms
-#    slash to ord(/)
-#    y     to ord(y)
-#    C-y   to ord(y) + (urxvt::ControlMask << 16),
+# maps
+#    'slash' to ord(/)
+#    'y'     to ord(y)
+#    'C-y'   to ord(y) + (urxvt::ControlMask << 16),
 # and for convenience also
-#    /     to ord(/)
+#    '/'     to ord(/)
 sub key_unescape {
     my ($key) = @_;
     my $mask = 0;
@@ -144,7 +136,7 @@ sub key_unescape {
     } else {
         $sym = ord($key);
     }
-    return store_sym_mask($sym,$mask);
+    return pack_key($sym,$mask);
 }
 
 sub on_start{
@@ -219,22 +211,19 @@ sub key_press {
             $key = "C-$key";
         }
 
-        my $key_desc = store_sym_mask($keysym,$event->{state} & ~urxvt::ShiftMask);
+        my $key_desc = pack_key($keysym,$event->{state} & ~urxvt::ShiftMask);
 
         my $key_pressed = sub {
             return (exists $self->{key}{key_unescape($_[0])}{$key_desc});
         };
 
+        my ($test_sym,$test_mask) = unpack_key($key_desc);
+
         open (MYFILE, '>>/home/dan/LOG');
-        print MYFILE $self->ModLevel3Mask, ' ', $self->ModMetaMask, "\n";
         print MYFILE "($key_desc) $key ";
-        print MYFILE " sym ";
-        print MYFILE get_sym($key_desc);
-        print MYFILE " keysym ";
-        print MYFILE $keysym;
-        print MYFILE " mask ";
-        print MYFILE get_mask($key_desc);
-        print MYFILE " state ";
+        print MYFILE "\$test_sym: $test_sym ";
+        print MYFILE "\$test_mask: $test_mask ";
+        print MYFILE "\$event->{state}: ";
         print MYFILE $event->{state};
         print MYFILE "\n";
         close MYFILE;
