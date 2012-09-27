@@ -148,14 +148,16 @@ sub on_start{
 
         open (MYFILE, '>>/home/dan/LOG');
 
-        # Look for .Xdefaults-settings for rebindings of keys, and store them in $self->{key}.
-        # All keys mapped this way are stored in %mapped_keys so they override default bindings.
+        # Look for .Xdefaults-settings for rebindings of keys, and
+        # store them in $self->{key}.  All keys mapped this way are
+        # stored in %mapped_keys so they override default bindings.
         my %mapped_keys;
         foreach my $key (@keys) {
             my $key_as_string = packed_to_string($key);
             my $resource = $self->x_resource("keyboard-select.key-$key_as_string");
             print MYFILE "$key ($key_as_string): $resource\n";
             if ($resource) {
+                # bind $key to every $value in $resource
                 foreach my $value (split /,/, $resource) {
                     my $packed_value = string_to_packed($value);
                     print MYFILE "Mapping $packed_value ($value) to $key_as_string.\n";
@@ -178,7 +180,8 @@ sub on_start{
                 foreach (@arrows) {
                     my ($char,$dir) = @_;
                     my $unescaped_dir = string_to_packed($dir);
-                    if ($key_as_string eq $char && !exists($mapped_keys{$unescaped_dir})) {
+                    if ($key_as_string eq $char
+                        && !exists($mapped_keys{$unescaped_dir})) {
                         $self->{key}{$key}{$unescaped_dir} = 1;
                     }
                 }
@@ -209,49 +212,52 @@ sub on_user_command {
 
 sub key_press {
 	my ($self, $event, $keysym, $char) = @_;
-	my $key = chr($keysym);
-
-        if ($event->{state} & urxvt::ControlMask) {
-            $key = "C-$key";
-        }
 
         my $packed = pack_key($keysym,$event->{state} & ~urxvt::ShiftMask);
 
+        # Is this key pressed?
         my $key_pressed = sub {
             return (exists $self->{key}{string_to_packed($_[0])}{$packed});
         };
 
-        my ($test_sym,$test_mask) = unpack_key($packed);
-
-        open (MYFILE, '>>/home/dan/LOG');
-        print MYFILE "($key_desc) $key ";
-        print MYFILE "\$test_sym: $test_sym ";
-        print MYFILE "\$test_mask: $test_mask ";
-        print MYFILE "\$event->{state}: ";
-        print MYFILE $event->{state};
-        print MYFILE "\n";
-        close MYFILE;
-
-        # looks up $key in the string which is the first argument,
-        # and returns its corresponding key if it is found
+        # If any of the keys in the argument is pressed, its underlying vim-binding.
         my $key_lookup = sub {
-            open (MYFILE, '>>/home/dan/LOG');
+            # open (MYFILE, '>>/home/dan/LOG');
             # print MYFILE "doing \$key_lookup\n";
             # print MYFILE "\@{$_[0]}: @{$_[0]}\n";
             foreach my $char (@{$_[0]}) {
                 # print MYFILE "$char ";
                 if ($key_pressed->($char)) {
-                    print MYFILE "\nkey_lookup $key: [$char]\n";
-                    close MYFILE;
+                    # print MYFILE "\nkey_lookup $key: [$char]\n";
+                    # close MYFILE;
                     return $char;
                 }
             }
             # print MYFILE "\n";
-            close MYFILE;
+            # close MYFILE;
             return;
         };
 
         my $found_key;
+
+        {   # debug
+            my $key = chr($keysym);
+
+            if ($event->{state} & urxvt::ControlMask) {
+                $key = "C-$key";
+            }
+
+            my ($test_sym,$test_mask) = unpack_key($packed);
+
+            open (MYFILE, '>>/home/dan/LOG');
+            print MYFILE "($packed) $key ";
+            print MYFILE "\$test_sym: $test_sym ";
+            print MYFILE "\$test_mask: $test_mask ";
+            print MYFILE "\$event->{state}: ";
+            print MYFILE $event->{state};
+            print MYFILE "\n";
+            close MYFILE;
+        }
 
 	if ($self->{search}) {
 		if ($key_pressed->('escape')) {
