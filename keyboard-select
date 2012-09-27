@@ -34,26 +34,24 @@ my $DOWN_KEYSYM   = 0xff54;
 my $LEFT_KEYSYM   = 0xff51;
 my $RIGHT_KEYSYM  = 0xff53;
 
-# Stores a keysym and a mask in an int
+# Packs a keysym and a mask in an int
 sub pack_key {
     my ($keysym, $keymask) = @_;
     return $keysym + ($keymask << 16);
 }
 
+# Unpacks an int containing a keysym and a mask and returns in a tuple
 sub unpack_key {
     return ($_[0] % (1 << 16),$_[0] >> 16);
 }
 
-# Keys that are overridable by setting appropriate
-# URxvt.keyboard-select.key-h, where the last h is the
-# key you want to change
-# For special keys use those defined in key_escape.
-# To change keys prefixed with control, use key-C-v, for instance.
+# Keys that are overridable in .Xdefaults/.Xresources.
 my @keys = (map(pack_key(ord($_),0),split //, 'hjklgG0^$HMLfF;,wWbBeE/?nNbuvVyq'),
             pack_key($ENTER_KEYSYM,0),
             pack_key($ESCAPE_KEYSYM,0),
             map(pack_key(ord($_),$CONTROL_MASK),split //, 'fdbuv'));
 
+# How keys are escaped in the configuration file
 my @escapes =
     ([ord('0'),'zero'],
      [ord('^'),'caret'],
@@ -91,14 +89,13 @@ my %backward ;
 foreach (@escapes) {
     $forward{$_->[0]} = $_->[1];
     $backward{$_->[1]} = $_->[0];
-;};
-
+};
 
 # maps
 #    ord(/) to 'slash'
 #    ord(y) to 'y'
 #    ord(y) + (urxvt::ControlMask << 16) to 'C-y'
-sub key_escape {
+sub packed_to_string {
     my ($sym,$mask) = unpack_key($_[0]);
     my $res = "";
     if (exists $forward{$sym}) {
@@ -121,7 +118,7 @@ sub key_escape {
 #    'C-y'   to ord(y) + (urxvt::ControlMask << 16),
 # and for convenience also
 #    '/'     to ord(/)
-sub key_unescape {
+sub string_to_packed {
     my ($key) = @_;
     my $mask = 0;
     if ($key =~ s/C-//) {
@@ -150,33 +147,40 @@ sub on_start{
 	$self->{patterns}{'E'} = qr/\S(?=\s|$)/;
 
         open (MYFILE, '>>/home/dan/LOG');
+
+        # Look for .Xdefaults-settings for rebindings of keys, and store them in $self->{key}.
+        # All keys mapped this way are stored in %mapped_keys so they override default bindings.
+
         my %mapped_keys;
         foreach my $key (@keys) {
-            my $escaped_key = key_escape($key);
+            my $escaped_key = packed_to_string($key);
             my $resource = $self->x_resource("keyboard-select.key-$escaped_key");
             print MYFILE "$key ($escaped_key): $resource\n";
             if ($resource) {
                 foreach my $value (split /,/, $resource) {
-                    my $unescaped_value = key_unescape($value);
+                    my $unescaped_value = string_to_packed($value);
                     print MYFILE "Mapping $unescaped_value ($value) to $escaped_key.\n";
                     $self->{key}{$key}{$unescaped_value} = ();
                     $mapped_keys{$unescaped_value} = ();
                 }
             }
         }
+
+        # Add the default bindings unless the key is already mapped.
+        # This also adds the arrow keys.
+
+        my @arrows = (['h','left'],['j','down'],['k','up'],['l','right']);
         foreach my $key (@keys) {
-            my $escaped_key = key_escape($key);
+            my $escaped_key = packed_to_string($key);
             if (!exists($mapped_keys{$key})) {
                 print MYFILE "$key ($escaped_key) mapped to itself\n";
                 $self->{key}{$key}{$key} = 1;
-                if ($escaped_key eq 'h' && !exists($mapped_keys{key_unescape{'left'}})) {
-                    $self->{key}{$key}{key_unescape{'left'}} = 1;
-                } elsif ($escaped_key eq 'j' && !exists($mapped_keys{key_unescape{'down'}})) {
-                    $self->{key}{$key}{key_unescape{'down'}} = 1;
-                } elsif ($escaped_key eq 'k' && !exists($mapped_keys{key_unescape{'up'}})) {
-                    $self->{key}{$key}{key_unescape{'up'}} = 1;
-                } elsif ($escaped_key eq 'l' && !exists($mapped_keys{key_unescape{'right'}})) {
-                    $self->{key}{$key}{key_unescape{'right'}} = 1;
+                foreach (@arrows) {
+                    my ($char,$dir) = @_;
+                    my $unescaped_dir = string_to_packed($dir);
+                    if ($escaped_key eq $char && !exists($mapped_keys{$unescaped_dir})) {
+                        $self->{key}{$key}{$unescaped_dir} = 1;
+                    }
                 }
             } else {
                 print MYFILE "$key ($escaped_key) not mapped to two things!\n";
@@ -211,13 +215,13 @@ sub key_press {
             $key = "C-$key";
         }
 
-        my $key_desc = pack_key($keysym,$event->{state} & ~urxvt::ShiftMask);
+        my $packed = pack_key($keysym,$event->{state} & ~urxvt::ShiftMask);
 
         my $key_pressed = sub {
-            return (exists $self->{key}{key_unescape($_[0])}{$key_desc});
+            return (exists $self->{key}{string_to_packed($_[0])}{$packed});
         };
 
-        my ($test_sym,$test_mask) = unpack_key($key_desc);
+        my ($test_sym,$test_mask) = unpack_key($packed);
 
         open (MYFILE, '>>/home/dan/LOG');
         print MYFILE "($key_desc) $key ";
