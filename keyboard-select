@@ -296,10 +296,11 @@ sub key_press {
 			status_area($self);
 		}
 	} elsif ($self->{move_to}) {
-		if ($keysym == 0xff1b) {
+		if ($key_pressed->('escape')) {
 			$self->{move_to} = 0;
 			status_area($self);
 		} elsif (length($char) > 0) {
+                        my $key = chr($keysym);
 			$self->{move_to} = 0;
 			$self->{patterns}{'f-1'} = qr/^.*\Q$key\E/;
 			$self->{patterns}{'f+1'} = qr/^.+?\Q$key\E/;
@@ -346,7 +347,7 @@ sub key_press {
         } elsif ($found_key = $key_lookup->(['f','F'])) {
 		$self->{move_to} = 1;
 		$self->{move_dir} = $found_key eq 'F' ? -1 : 1;
-		status_area($self, $key);
+		status_area($self, $found_key);
 	} elsif ($found_key = $key_lookup->([ split //, ';,wWbBeE' ])) {
                 open (MYFILE, '>>/home/dan/LOG');
                 print MYFILE "\$found_key: $found_key\n";
